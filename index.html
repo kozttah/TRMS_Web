@@ -1,0 +1,200 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <title>Laboratório Virtual de Controle - TRMS</title>
+    
+    <!-- Three.js e OrbitControls (DEVEM vir antes do RequireJS) -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.js"></script>
+
+    <!-- Dependências da Simulação -->
+    <script src="https://cdn.jsdelivr.net/pyodide/v0.25.0/full/pyodide.js"></script>
+    <script src="https://cdn.plot.ly/plotly-2.30.0.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/require.js/2.3.6/require.min.js"></script>
+    
+    <!-- Configuração do MathJax -->
+    <script>
+        window.MathJax = {
+            tex: { inlineMath: [['$', '$'], ['\\(', '\\)']], displayMath: [['$$', '$$'], ['\\[', '\\]']] },
+            svg: { fontCache: 'global' }
+        };
+    </script>
+    <script id="MathJax-script" async src="https://cdn.jsdelivr.net/npm/mathjax@3/es5/tex-mml-chtml.js"></script>
+    
+    <style>
+        :root {
+            --bg-dark: #1e1e1e;
+            --bg-panel: #252526;
+            --border: #3c3c3c;
+            --text-main: #cccccc;
+            --accent: #0e639c;
+            --accent-hover: #1177bb;
+            --success: #4caf50;
+            --warning: #d7ba7d;
+        }
+
+        body { margin: 0; padding: 0; display: flex; flex-direction: column; height: 100vh; font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; background: var(--bg-dark); color: var(--text-main); }
+        
+        /* Barra de Ferramentas */
+        #toolbar { display: flex; align-items: center; padding: 0 20px; background: var(--bg-panel); border-bottom: 1px solid var(--border); min-height: 50px; }
+        #toolbar h3 { margin: 0; font-size: 1.1em; color: #007acc; margin-right: 30px; }
+        
+        .tab-buttons { display: flex; height: 100%; gap: 5px; }
+        .tab-btn { background: transparent; color: #888; border: none; border-bottom: 3px solid transparent; padding: 0 15px; cursor: pointer; font-size: 14px; font-weight: 600; transition: 0.2s; height: 50px; }
+        .tab-btn:hover { color: #fff; }
+        .tab-btn.active { color: #fff; border-bottom-color: var(--accent); }
+        
+        .controls { display: flex; align-items: center; gap: 10px; margin-left: auto; }
+        .slider-group { display: flex; align-items: center; gap: 8px; margin-right: 10px; background: #1a1a1a; padding: 4px 12px; border-radius: 4px; border: 1px solid var(--border); }
+        .slider-group label { font-size: 13px; font-weight: bold; white-space: nowrap; }
+        .slider-group input[type="range"] { cursor: pointer; accent-color: var(--accent); width: 100px; }
+        
+        .action-btn { background: var(--accent); color: white; border: none; padding: 6px 14px; cursor: pointer; font-weight: bold; border-radius: 3px; font-size: 13px; }
+        .action-btn:hover { background: var(--accent-hover); }
+        .action-btn:disabled { background: #4d4d4d; color: #888; cursor: not-allowed; }
+        #status { font-size: 0.9em; color: var(--warning); margin-left: 10px; min-width: 210px; text-align: right; }
+        
+        /* Contêineres de Abas */
+        .tab-content { display: none; flex: 1; overflow: hidden; }
+        .tab-content.active { display: flex; }
+        
+        /* Layout da Simulação */
+        #workspace { display: flex; flex: 1; width: 100%; }
+        #editor-container { width: 42%; border-right: 1px solid var(--border); }
+        #visualization { width: 58%; display: flex; flex-direction: column; padding: 10px; gap: 10px; overflow-y: auto; }
+        
+        /* Painel 3D */
+        #viewer-3d-wrapper { position: relative; height: 340px; min-height: 280px; background: #181a1f; border-radius: 4px; border: 1px solid var(--border); overflow: hidden; }
+        #viewer-3d { width: 100%; height: 100%; }
+        
+        /* HUD sobreposto ao 3D */
+        #hud-3d { position: absolute; top: 10px; left: 12px; background: rgba(20, 20, 24, 0.82); padding: 8px 12px; border-radius: 4px; border: 1px solid #3c3c3c; font-family: monospace; font-size: 12px; pointer-events: none; line-height: 1.5; }
+        #hud-controls { position: absolute; bottom: 10px; left: 12px; right: 12px; background: rgba(25, 25, 30, 0.88); padding: 6px 12px; border-radius: 4px; border: 1px solid #3c3c3c; display: flex; align-items: center; gap: 10px; font-size: 12px; }
+        #anim-scrubber { flex: 1; cursor: pointer; accent-color: #2ecc71; }
+        #anim-speed { background: #1e1e1e; color: #fff; border: 1px solid #555; border-radius: 3px; padding: 2px 6px; font-size: 11px; cursor: pointer; }
+        #hud-hint { position: absolute; top: 10px; right: 12px; background: rgba(20, 20, 24, 0.7); padding: 4px 8px; border-radius: 4px; font-size: 11px; color: #aaa; pointer-events: none; }
+
+        /* Gráficos */
+        .plots-grid { display: flex; flex-direction: column; flex: 1; gap: 10px; min-height: 420px; }
+        .plot { flex: 1; min-height: 200px; background: var(--bg-panel); border-radius: 4px; }
+        
+        /* Layout do Documento Matemático */
+        #model-doc { padding: 40px; overflow-y: auto; width: 100%; display: flex; justify-content: center; }
+        .doc-content { max-width: 850px; width: 100%; line-height: 1.6; font-size: 1.05em; color: #d4d4d4; }
+        .doc-content h2 { color: #569cd6; border-bottom: 1px solid var(--border); padding-bottom: 10px; }
+        .doc-content h3 { color: #4ec9b0; margin-top: 30px; }
+        .doc-content p { margin-bottom: 1.5em; text-align: justify; }
+        .math-block { background: #1a1a1a; padding: 15px; border-radius: 6px; border: 1px solid #333; margin: 15px 0; overflow-x: auto; }
+    </style>
+</head>
+<body>
+    <div id="toolbar">
+        <h3>TRMS Virtual</h3>
+        
+        <div class="tab-buttons">
+            <button class="tab-btn active" onclick="switchTab('tab-sim', this)">Simulação</button>
+            <button class="tab-btn" onclick="switchTab('tab-model', this)">Modelo Matemático</button>
+        </div>
+        
+        <div class="controls">
+            <div class="slider-group">
+                <label for="time-slider">Tempo: <span id="time-val">20</span>s</label>
+                <input type="range" id="time-slider" min="5" max="120" step="5" value="20">
+            </div>
+            <button id="btn-simulate" class="action-btn" disabled>▶ Simular</button>
+            <button id="btn-play" class="action-btn" disabled>🎬 Play 3D</button>
+            <button id="btn-fullscreen" class="action-btn">⛶ Tela Cheia</button>
+            <span id="status">Carregando Pyodide...</span>
+        </div>
+    </div>
+    
+    <!-- ABA 1: Simulação -->
+    <div id="tab-sim" class="tab-content active">
+        <div id="workspace">
+            <div id="editor-container"></div>
+            <div id="visualization">
+                <!-- Visualizador 3D Three.js -->
+                <div id="viewer-3d-wrapper">
+                    <div id="viewer-3d"></div>
+                    <div id="hud-3d">
+                        <div>Tempo (t): <span id="hud-t">0.00</span> s (<span id="hud-speed" style="color:#2ecc71;">1x</span>)</div>
+                        <div style="color:#ff7675;">Pitch (θ): <span id="hud-pitch">-0.300</span> rad</div>
+                        <div style="color:#74b9ff;">Yaw (ψ): &nbsp;&nbsp;<span id="hud-yaw">0.000</span> rad</div>
+                    </div>
+                    <div id="hud-hint">30 FPS | 🖱️ Arraste: Girar | Scroll: Zoom</div>
+                    <div id="hud-controls">
+                        <span id="anim-time-label" style="min-width: 90px;">0.0s / 20.0s</span>
+                        <input type="range" id="anim-scrubber" min="0" max="100" step="0.1" value="0" disabled>
+                        <select id="anim-speed" title="Velocidade de Reprodução">
+                            <option value="1" selected>1x (Tempo Real)</option>
+                            <option value="2">2x</option>
+                            <option value="4">4x</option>
+                            <option value="8">8x</option>
+                        </select>
+                        <button id="btn-reset-cam" class="action-btn" style="padding: 3px 8px; font-size: 11px;">Resetar Câmera</button>
+                    </div>
+                </div>
+
+                <!-- Gráficos Plotly -->
+                <div class="plots-grid">
+                    <div id="plot-pitch" class="plot"></div>
+                    <div id="plot-yaw" class="plot"></div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- ABA 2: Modelo Matemático -->
+    <div id="tab-model" class="tab-content">
+        <div id="model-doc">
+            <div class="doc-content">
+                <h2>Dinâmica Não-Linear do Sistema TRMS</h2>
+                <p>O <em>Twin Rotor MIMO System</em> (TRMS) é uma bancada de testes de controle que simula a dinâmica acoplada e não-linear de um helicóptero de dois rotores[cite: 2]. O modelo matemático integrado neste laboratório virtual reflete com precisão os fenômenos físicos da bancada física, incluindo atritos estáticos e viscosos, efeitos giroscópicos e torques cruzados[cite: 2, 3].</p>
+                
+                <h3>1. Dinâmica dos Motores e Rotores</h3>
+                <p>O sistema possui dois motores DC acionados por sinais de tensão restritos ao intervalo $[-2.5\text{V}, 2.5\text{V}]$[cite: 2]. As acelerações angulares do rotor principal ($\dot{\omega}_p$) e do rotor de cauda ($\dot{\omega}_c$) são modeladas por equações diferenciais de primeira ordem[cite: 2, 3]:</p>
+                <div class="math-block">
+                    $$ \dot{\omega}_p = \frac{1}{T_{11}} \left( -T_{10} \omega_p + k_1 u_{arfagem} \right) $$
+                    $$ \dot{\omega}_c = \frac{1}{T_{21}} \left( -T_{20} \omega_c + k_2 u_{guinada} \right) $$
+                </div>
+                <p>O momento de propulsão aerodinâmico gerado pelos rotores é uma função quadrática da velocidade angular de cada motor[cite: 2]:</p>
+                <div class="math-block">
+                    $$ M_{prop\_arfagem} = a_1 \omega_p^2 + b_1 \omega_p $$
+                    $$ M_{prop\_guinada} = a_2 \omega_c^2 + b_2 \omega_c $$
+                </div>
+
+                <h3>2. Eixo de Arfagem (Pitch - $\theta$)</h3>
+                <p>O movimento no plano vertical está sujeito à força gravitacional, ao torque de propulsão, a um atrito não-linear e aos efeitos giroscópicos advindos da rotação da cauda[cite: 2]. A equação de movimento do eixo de arfagem é dada por[cite: 2]:</p>
+                <div class="math-block">
+                    $$ \ddot{\theta} = \frac{1}{I_1} \left( M_{prop\_arfagem} - M_g \sin(\theta) - B_{arfagem}(\dot{\theta}) - M_{giro} + M_{pert} \right) $$
+                </div>
+                <p>Onde o atrito total no mancal e a perturbação de massa são modelados como[cite: 2]:</p>
+                <div class="math-block">
+                    $$ B_{arfagem}(\dot{\theta}) = b_{1\_arf} \dot{\theta} + b_{2\_arf} \text{sgn}(\dot{\theta}) $$
+                    $$ M_{pert} = (m_{add} \cdot 9.81) \cos(\theta) \cdot 0.5 $$
+                </div>
+
+                <h3>3. Eixo de Guinada (Yaw - $\psi$)</h3>
+                <p>O movimento horizontal (guinada) é acionado pelo rotor de cauda, mas sofre forte perturbação reativa do rotor principal[cite: 2]. Sua dinâmica é expressa por[cite: 2]:</p>
+                <div class="math-block">
+                    $$ \ddot{\psi} = \frac{1}{I_2} \left( M_{prop\_guinada} - B_{guinada}(\dot{\psi}) - x_{cross} \right) $$
+                </div>
+
+                <h3>4. Acoplamentos (Cross-Coupling)</h3>
+                <p>O grande desafio de controle do TRMS advém de seus acoplamentos não-lineares. O torque giroscópico ($M_{giro}$) afeta a arfagem quando há velocidade de guinada associada à propulsão da cauda, enquanto o estado de reação cruzada ($x_{cross}$) perturba a guinada com base nas acelerações do rotor principal[cite: 2]:</p>
+                <div class="math-block">
+                    $$ M_{giro} = K_{gy} M_{prop\_guinada} \dot{\psi} \cos(\theta) $$
+                    $$ \dot{x}_{cross} = \frac{1}{T_p} \left( -x_{cross} + k_c (T_0 \dot{\omega}_p + \omega_p) \right) $$
+                </div>
+                <p>Todos os estados medidos ($\theta$ e $\psi$) estão sujeitos a ruído aditivo gaussiano e limitação de resolução devido à quantização intrínseca dos <em>encoders</em> ópticos do equipamento físico real[cite: 2, 3].</p>
+            </div>
+        </div>
+    </div>
+
+    <!-- Injeção anti-cache para forçar o Safari a ler sempre o app.js atualizado -->
+    <script>
+        document.write('<script src="app.js?t=' + Date.now() + '"><\/script>');
+    </script>
+</body>
+</html>
